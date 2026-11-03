@@ -59,8 +59,12 @@ servers: the leaderboard is per server automatically. Steps 1–3 below take abo
 3. **Activities** → *Getting Started* → enable Activities.
 4. Under **Activities → URL Mappings** add a root mapping: `/` → your public HTTPS URL
    (your tunnel URL during development, your host in production).
-5. **Installation** → make sure *Guild Install* is enabled, then install the app to your server
+5. **OAuth2 → Redirects** → add `https://127.0.0.1` (a placeholder; the SDK never uses it, but
+   the token exchange fails with "Missing redirect_uri" if none is registered).
+6. **Installation** → make sure *Guild Install* is enabled, then install the app to your server
    with the install link on that page.
+7. Optional: enabling Activities created a `/launch` slash command. Rename it to `/maptap` with
+   `node scripts/rename-command.js` (reads your `.env`).
 
 ## 2. Run locally
 
