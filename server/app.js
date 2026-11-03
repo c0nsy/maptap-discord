@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { store } from './store.js';
 import {
-  ROUNDS, MULTIPLIERS, TIER_LABELS, MAX_TOTAL, todayKey, puzzleNumber, dailyPlaces,
+  ROUNDS, MULTIPLIERS, TIER_LABELS, MAX_TOTAL, todayKey, shiftDate, puzzleNumber, dailyPlaces,
   distanceKm, scoreForDistance, medalForScore, quipFor,
 } from './game.js';
 
@@ -143,6 +143,45 @@ app.get('/api/leaderboard', async (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, store: store.kind }));
+
+// ---------- Daily streak reminder (Vercel cron → see vercel.json) ----------
+// Pings everyone who has finished the puzzle on at least the last 2 consecutive days but hasn't
+// played today yet. Needs a bot user on the app (DISCORD_BOT_TOKEN) with Send Messages in the
+// channel, plus REMINDER_GUILD_ID / REMINDER_CHANNEL_ID and CRON_SECRET (Vercel sends it as a
+// bearer token so nobody else can trigger the post).
+app.get('/api/cron/reminder', async (req, res) => {
+  const { CRON_SECRET, DISCORD_BOT_TOKEN, REMINDER_GUILD_ID, REMINDER_CHANNEL_ID } = process.env;
+  if (!CRON_SECRET || req.headers.authorization !== `Bearer ${CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
+  if (!DISCORD_BOT_TOKEN || !REMINDER_GUILD_ID || !REMINDER_CHANNEL_ID) return res.status(500).json({ error: 'Reminder env vars not set' });
+
+  const today = todayKey();
+  const playedToday = await store.getGuild(today, REMINDER_GUILD_ID);
+  const days = [];
+  for (let i = 1; i <= 30; i++) days.push(await store.getGuild(shiftDate(today, i), REMINDER_GUILD_ID));
+
+  // streak = consecutive finished days ending yesterday
+  const streaks = [];
+  for (const userId of Object.keys(days[0])) {
+    if (playedToday[userId]?.finished) continue;
+    let streak = 0;
+    for (const day of days) { if (day[userId]?.finished) streak++; else break; }
+    if (streak >= 2) streaks.push({ userId, streak, username: days[0][userId].username });
+  }
+  streaks.sort((a, b) => b.streak - a.streak);
+  if (req.query.dry) return res.json({ ok: true, dryRun: true, streaks }); // preview without posting
+  if (!streaks.length) return res.json({ ok: true, pinged: 0 });
+
+  const n = puzzleNumber(today);
+  const list = streaks.map((s) => `<@${s.userId}> (${s.streak} day${s.streak === 1 ? '' : 's'} 🔥)`).join(', ');
+  const content = `🌍 **MapTap #${n}** is live! Don't break your streak: ${list}\nType \`/maptap\` to play.`;
+  const r = await fetch(`https://discord.com/api/v10/channels/${REMINDER_CHANNEL_ID}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, allowed_mentions: { users: streaks.map((s) => s.userId) } }),
+  });
+  if (!r.ok) return res.status(502).json({ error: 'Discord rejected the message', detail: await r.text() });
+  res.json({ ok: true, pinged: streaks.length });
+});
 
 // ---------- Static client (production on a normal Node host; Vercel serves client/dist itself) ----------
 if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {

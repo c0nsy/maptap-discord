@@ -121,6 +121,22 @@ Upstash Redis database instead of the file (`server/store.js` switches automatic
 Deploy from the GitHub repo, set `VITE_DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, and
 either mount a volume and set `SCORES_DIR` to it, or set the Upstash variables above.
 
+## Daily streak reminder (optional)
+
+Like Discord's Wordle activity, the app can post every morning and ping everyone who has
+finished the puzzle on 2+ consecutive days but hasn't played yet. It runs as a Vercel cron
+(`vercel.json`, `0 14 * * *` = 9 am EST / 10 am EDT) hitting `/api/cron/reminder`.
+
+1. Developer portal → **Bot** → Add Bot → Reset Token → copy it.
+2. **Installation** → Guild Install scopes: add `bot` with permissions *View Channels* and
+   *Send Messages*. Re-open the install link and add the app to your server again so the bot joins.
+3. Vercel env vars: `DISCORD_BOT_TOKEN`, `REMINDER_GUILD_ID` (your server ID),
+   `REMINDER_CHANNEL_ID` (the channel to post in; enable Developer Mode in Discord to copy IDs),
+   and `CRON_SECRET` (any long random string; Vercel sends it to the endpoint automatically).
+   Redeploy.
+4. Preview who would be pinged without posting:
+   `curl -H "Authorization: Bearer $CRON_SECRET" "https://<your-app>.vercel.app/api/cron/reminder?dry=1"`
+
 ## Customising
 
 - **Places**: edit `data/places.json` (`name`, `country`, `lat`, `lon`, `difficulty` 1–5, optional `population`).

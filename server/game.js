@@ -20,6 +20,12 @@ export function todayKey(now = new Date()) {
   return now.toISOString().slice(0, 10);
 }
 
+/** Date key `days` days before another date key. */
+export function shiftDate(dateKey, days) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d - days)).toISOString().slice(0, 10);
+}
+
 export function puzzleNumber(dateKey) {
   const [y, m, d] = dateKey.split('-').map(Number);
   return Math.floor((Date.UTC(y, m - 1, d) - EPOCH) / 86400000) + 1;

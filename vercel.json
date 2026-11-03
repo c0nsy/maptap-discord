@@ -5,5 +5,8 @@
   "framework": null,
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" }
+  ],
+  "crons": [
+    { "path": "/api/cron/reminder", "schedule": "0 14 * * *" }
   ]
 }
