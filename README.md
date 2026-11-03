@@ -98,9 +98,24 @@ the URL mapping at the deployed host. Scores are a JSON file: set `SCORES_DIR` t
 volume (for example `/data` on Railway) so they survive redeploys, or swap the few functions at
 the top of `server/index.js` for a DB.
 
-**Railway in short:** New Project → Deploy from GitHub repo → add variables
-`VITE_DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `SCORES_DIR=/data` → add a Volume mounted
-at `/data` → Settings → Networking → Generate Domain → use that domain as the Discord URL mapping.
+### Free hosting on Vercel (recommended)
+
+Vercel's Hobby plan is free, and serverless functions have no disk, so scores go in a free
+Upstash Redis database instead of the file (`server/store.js` switches automatically).
+
+1. https://vercel.com/new → Import the GitHub repo. `vercel.json` already sets the build
+   (`npm run build`), the output dir (`client/dist`) and routes `/api/*` to `api/index.js`.
+2. Environment Variables: `VITE_DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`.
+3. Storage tab → Create → Upstash Redis (free) → connect it to the project. This injects
+   `KV_REST_API_URL` / `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_*`). Redeploy.
+4. Use the project's `*.vercel.app` domain as the Discord root URL mapping.
+
+`GET /api/health` reports which store is active (`redis` or `file`).
+
+### Railway / Render / a VPS
+
+Deploy from the GitHub repo, set `VITE_DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, and
+either mount a volume and set `SCORES_DIR` to it, or set the Upstash variables above.
 
 ## Customising
 
