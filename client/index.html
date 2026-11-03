@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>MapTap Daily</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="map-wrap" id="map-wrap">
+      <canvas id="map"></canvas>
+    </div>
+
+    <!-- Banner HUD -->
+    <div class="hud">
+      <div class="hud-bar">
+        <button class="hud-menu" id="btn-menu">☰ Menu</button>
+        <span class="hud-title" id="puzzle-no">MapTap</span>
+        <span class="hud-date" id="hud-date"></span>
+      </div>
+      <div class="hud-row">
+        <div class="score-box">
+          <span class="label">SCORE</span>
+          <span class="score" id="score">000</span>
+        </div>
+        <div class="prompt-box" id="prompt-box">
+          <div class="tier" id="tier">Easy - 1x Multiplier</div>
+          <div class="prompt-text" id="prompt-text">Loading today's puzzle…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="zoom-controls">
+      <button id="zoom-in" title="Zoom in">+</button>
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-reset" title="Reset view">⟲</button>
+    </div>
+
+    <!-- Game finished -->
+    <div class="sheet hidden" id="final-sheet">
+      <div class="sheet-card">
+        <h2 id="final-title">You've filled this day in!</h2>
+        <div class="final-grid" id="final-grid"></div>
+        <div class="final-total" id="final-total">0 / 15000</div>
+        <div class="final-rows" id="final-rows"></div>
+        <button class="primary" id="btn-share">Share to chat</button>
+        <button class="secondary" id="btn-final-board">Leaderboard</button>
+        <button class="secondary accent" id="btn-practice">▶ Play again (practice)</button>
+        <p class="fine" id="final-note">Your daily score is locked in. Practice games are unranked and don't change it.</p>
+        <div class="toast hidden" id="toast">Copied!</div>
+      </div>
+    </div>
+
+    <!-- Leaderboard -->
+    <div class="sheet hidden" id="board-sheet">
+      <div class="sheet-card">
+        <h2>Today's leaderboard</h2>
+        <div class="board" id="board"></div>
+        <button class="secondary" id="btn-board-close">Close</button>
+      </div>
+    </div>
+
+    <!-- Menu -->
+    <div class="sheet hidden" id="menu-sheet">
+      <div class="sheet-card">
+        <h2>MapTap</h2>
+        <div class="menu-list">
+          <button class="secondary" id="menu-board">🏆 Leaderboard</button>
+          <button class="secondary" id="menu-daily">📅 Back to today's puzzle</button>
+          <button class="secondary" id="menu-practice">▶ Practice game (unranked)</button>
+        </div>
+        <button class="secondary" id="btn-menu-close">Close</button>
+      </div>
+    </div>
+
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
