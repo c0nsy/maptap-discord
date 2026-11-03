@@ -37,7 +37,9 @@ console.log(`Found entry point command "/${entry.name}" (${entry.id}); renaming 
 
 const res = await fetch(`${API}/applications/${id}/commands/${entry.id}`, {
   method: 'PATCH', headers: auth,
-  body: JSON.stringify({ name, description, handler: 2 /* DISCORD_LAUNCH_ACTIVITY */ }),
+  // Discord's auto-created command carries localized "launch" names that clients display
+  // in preference to `name`, so clear them too.
+  body: JSON.stringify({ name, description, name_localizations: null, description_localizations: null, handler: 2 /* DISCORD_LAUNCH_ACTIVITY */ }),
 });
 if (!res.ok) { console.error('Rename failed:', await res.text()); process.exit(1); }
 console.log(`Done: /${name} launches the Activity. Discord can take up to an hour to show the new name.`);
