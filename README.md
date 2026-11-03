@@ -93,9 +93,14 @@ npm start                # serves client/dist + API on $PORT
 ```
 
 Host it anywhere Node runs (Railway, Fly, Render, a VPS behind Caddy). Set
-`VITE_DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` and `PORT`, do **not** set `DEV_FAKE_USER`,
-and point the URL mapping at the deployed host. Scores live in `data/scores.json`; mount that
-path on persistent storage, or swap the few functions at the top of `server/index.js` for a DB.
+`VITE_DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`, do **not** set `DEV_FAKE_USER`, and point
+the URL mapping at the deployed host. Scores are a JSON file: set `SCORES_DIR` to a persistent
+volume (for example `/data` on Railway) so they survive redeploys, or swap the few functions at
+the top of `server/index.js` for a DB.
+
+**Railway in short:** New Project → Deploy from GitHub repo → add variables
+`VITE_DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `SCORES_DIR=/data` → add a Volume mounted
+at `/data` → Settings → Networking → Generate Domain → use that domain as the Discord URL mapping.
 
 ## Customising
 

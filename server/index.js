@@ -16,7 +16,8 @@ const PORT = process.env.PORT || 3001;
 const { VITE_DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = process.env;
 
 // ---------- Persistence (simple JSON file; swap for a DB if the server grows) ----------
-const DATA_DIR = path.join(__dirname, '../data');
+// SCORES_DIR lets hosts mount a persistent volume (e.g. /data on Railway) without hiding data/places.json.
+const DATA_DIR = process.env.SCORES_DIR || path.join(__dirname, '../data');
 const SCORES_FILE = path.join(DATA_DIR, 'scores.json');
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 let scores = existsSync(SCORES_FILE) ? JSON.parse(readFileSync(SCORES_FILE, 'utf8')) : {};
