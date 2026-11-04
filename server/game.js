@@ -14,7 +14,7 @@ export const TIER_LABELS = ['Easy', 'Medium', 'Hard', 'Expert', 'Extreme'];
 // Which place-difficulty pool each round draws from. Tier 1 (world-famous capitals) is skipped
 // entirely so even the "Easy" round is a secondary city; the last two rounds both draw from tier 5.
 export const ROUND_TIERS = [2, 3, 4, 5, 5];
-export const ROUND_SECONDS = 20; // time limit per round; the server allows a little network grace
+export const ROUND_SECONDS = 45; // time limit per round; the server allows a little network grace
 export const MAX_TOTAL = MULTIPLIERS.reduce((s, m) => s + m * MAX_ROUND_SCORE, 0);
 // Puzzle #1 is this date; the number increments each UTC day after.
 const EPOCH = Date.UTC(2026, 10, 3); // 2026-11-03

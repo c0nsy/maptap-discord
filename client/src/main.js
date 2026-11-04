@@ -115,7 +115,7 @@ async function startRound() {
   $('prompt-box').classList.remove('faded');
 
   // Start the clock. For the daily game the server owns the start time, so a reload resumes
-  // with whatever is left rather than a fresh 20 seconds.
+  // with whatever is left rather than a fresh 45 seconds.
   let remainingMs = game.roundSeconds * 1000;
   if (game.mode === 'daily') {
     try {

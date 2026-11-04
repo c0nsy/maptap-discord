@@ -25,7 +25,7 @@ Hard ×2, Expert ×2.5, Extreme ×3, so a perfect day is 1000. Each of the ~380 
 `data/places.json` has a `difficulty` of 1–5; rounds draw from tiers 2, 3, 4, 5, 5 (`ROUND_TIERS`
 in `server/game.js`), so the world-famous capitals in tier 1 never appear.
 
-**20 seconds per round.** The clock starts when the prompt appears and is kept server-side, so
+**45 seconds per round.** The clock starts when the prompt appears and is kept server-side, so
 reloading doesn't reset it. No tap in time scores 0 for that round (⏰ in the share line).
 
 Tapping the globe **is** the guess (zoom in first to be precise). The reveal copies maptap.gg: an
