@@ -6,9 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { store } from './store.js';
 import {
-  ROUNDS, MULTIPLIERS, TIER_LABELS, MAX_TOTAL, todayKey, shiftDate, puzzleNumber, dailyPlaces,
+  ROUNDS, MULTIPLIERS, TIER_LABELS, MAX_TOTAL, ROUND_SECONDS, todayKey, shiftDate, puzzleNumber, dailyPlaces,
   distanceKm, scoreForDistance, medalForScore, quipFor,
 } from './game.js';
+
+const GRACE_MS = 3000; // network slack on top of ROUND_SECONDS before a guess counts as late
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -69,6 +71,7 @@ app.get('/api/daily', async (req, res) => {
     date: dateKey,
     number: puzzleNumber(dateKey),
     maxTotal: MAX_TOTAL,
+    roundSeconds: ROUND_SECONDS,
     rounds: roundInfo(places),
     // Reveal coordinates for rounds the player already finished so a reload restores the map.
     progress: progress ? {
@@ -78,33 +81,60 @@ app.get('/api/daily', async (req, res) => {
   });
 });
 
+function newPlayer(user) {
+  return {
+    username: user.global_name || user.username,
+    avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null,
+    rounds: [], started: {}, total: 0, finished: false,
+  };
+}
+
+// The client calls this when a round's prompt appears; the clock for that round starts now
+// (server time, so reloading or stalling the page doesn't buy extra seconds).
+app.post('/api/round/start', async (req, res) => {
+  const user = await discordUser(req);
+  if (!user) return res.status(401).json({ error: 'Not signed in to Discord' });
+  const { round, guildId = 'solo' } = req.body;
+  if (!Number.isInteger(round) || round < 0 || round >= ROUNDS) return res.status(400).json({ error: 'Bad round' });
+  const dateKey = todayKey();
+  const guild = await store.getGuild(dateKey, guildId);
+  const player = guild[user.id] ??= newPlayer(user);
+  player.started ??= {};
+  if (player.rounds.length !== round) return res.status(409).json({ error: 'Out of order', progress: player });
+  if (!player.started[round]) {
+    player.started[round] = Date.now();
+    await store.setGuild(dateKey, guildId, guild);
+  }
+  const remainingMs = Math.max(0, player.started[round] + ROUND_SECONDS * 1000 - Date.now());
+  res.json({ seconds: ROUND_SECONDS, remainingMs });
+});
+
 // Submit a guess for a round. Server computes distance and score.
 app.post('/api/guess', async (req, res) => {
   const user = await discordUser(req);
   if (!user) return res.status(401).json({ error: 'Not signed in to Discord' });
-  const { round, lat, lon, guildId = 'solo' } = req.body;
+  const { round, lat, lon, timeout, guildId = 'solo' } = req.body;
   if (!Number.isInteger(round) || round < 0 || round >= ROUNDS) return res.status(400).json({ error: 'Bad round' });
-  if (typeof lat !== 'number' || typeof lon !== 'number') return res.status(400).json({ error: 'Bad coordinates' });
+  const hasCoords = typeof lat === 'number' && typeof lon === 'number';
+  if (!timeout && !hasCoords) return res.status(400).json({ error: 'Bad coordinates' });
 
   const dateKey = todayKey();
   const places = dailyPlaces(dateKey);
   const guild = await store.getGuild(dateKey, guildId);
-  let player = guild[user.id];
-  if (!player) {
-    player = guild[user.id] = {
-      username: user.global_name || user.username,
-      avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : null,
-      rounds: [], total: 0, finished: false,
-    };
-  }
+  const player = guild[user.id] ??= newPlayer(user);
   if (player.rounds.length !== round) return res.status(409).json({ error: 'Out of order', progress: player });
 
+  // Late (or never started) guesses score 0, same as an explicit timeout.
+  const startedAt = player.started?.[round];
+  const late = !startedAt || Date.now() - startedAt > ROUND_SECONDS * 1000 + GRACE_MS;
+  const timedOut = Boolean(timeout) || late || !hasCoords;
+
   const target = places[round];
-  const km = distanceKm(lat, lon, target.lat, target.lon);
+  const km = timedOut ? null : Math.round(distanceKm(lat, lon, target.lat, target.lon));
   const base = scoreForDistance(km);
   const multiplier = MULTIPLIERS[round];
   const score = Math.round(base * multiplier);
-  const entry = { lat, lon, km: Math.round(km), base, multiplier, score, emoji: medalForScore(base) };
+  const entry = { lat: timedOut ? null : lat, lon: timedOut ? null : lon, km, base, multiplier, score, timedOut, emoji: medalForScore(base, timedOut) };
   player.rounds.push(entry);
   player.total += score;
   player.finished = player.rounds.length === ROUNDS;
@@ -116,19 +146,19 @@ app.post('/api/guess', async (req, res) => {
 // ---------- Practice mode (unranked, never saved; the daily attempt can't be replayed) ----------
 app.get('/api/practice', (req, res) => {
   const seed = `practice:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-  res.json({ seed, maxTotal: MAX_TOTAL, rounds: roundInfo(dailyPlaces(seed)) });
+  res.json({ seed, maxTotal: MAX_TOTAL, roundSeconds: ROUND_SECONDS, rounds: roundInfo(dailyPlaces(seed)) });
 });
 
 app.post('/api/practice/guess', (req, res) => {
-  const { seed, round, lat, lon } = req.body;
+  const { seed, round, lat, lon, timeout } = req.body;
   if (typeof seed !== 'string' || !seed.startsWith('practice:')) return res.status(400).json({ error: 'Bad seed' });
   if (!Number.isInteger(round) || round < 0 || round >= ROUNDS) return res.status(400).json({ error: 'Bad round' });
-  if (typeof lat !== 'number' || typeof lon !== 'number') return res.status(400).json({ error: 'Bad coordinates' });
+  const timedOut = Boolean(timeout) || typeof lat !== 'number' || typeof lon !== 'number';
   const target = dailyPlaces(seed)[round];
-  const km = distanceKm(lat, lon, target.lat, target.lon);
+  const km = timedOut ? null : Math.round(distanceKm(lat, lon, target.lat, target.lon));
   const base = scoreForDistance(km);
   const multiplier = MULTIPLIERS[round];
-  res.json({ km: Math.round(km), base, multiplier, score: Math.round(base * multiplier), emoji: medalForScore(base), target, quip: quipFor(km) });
+  res.json({ km, base, multiplier, score: Math.round(base * multiplier), timedOut, emoji: medalForScore(base, timedOut), target, quip: quipFor(km) });
 });
 
 // Per-server leaderboard for today.

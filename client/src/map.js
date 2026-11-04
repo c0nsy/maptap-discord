@@ -206,6 +206,22 @@ export function createMap(canvas, { onTap }) {
   function reveal(t, guess, km, onArrive) {
     locked = true;
     target = { lat: t.lat, lon: t.lon };
+
+    // No guess (ran out of time): just fly to the answer and show it.
+    if (!guess) {
+      pin = null;
+      const b = toVec(target).normalize();
+      const camFrom = camera.position.clone().normalize();
+      const d0 = camera.position.length();
+      animate(900, (e) => camera.position.copy(slerp(camFrom, b, e).multiplyScalar(d0 + (1.5 - d0) * e)), () => {
+        place(targetRod, target);
+        overlay.show([target.lon, target.lat], 0);
+        resultText.classList.remove('hidden');
+        onArrive?.(resultText);
+      });
+      return;
+    }
+
     pin = { lon: guess[0], lat: guess[1] };
     place(guessDotGroup, pin);
     guessLabel.classList.remove('hidden');

@@ -19,6 +19,8 @@ let total = 0;
 let results = [];       // per-round { km, base, multiplier, score, emoji, target, quip }
 let phase = 'idle';     // idle | guessing | revealing | shown
 let advanceTimer = null;
+let deadline = 0;       // ms timestamp when the current round's clock runs out
+let clockTimer = null;
 
 const map = createMap($('map'), {
   onTap: (ll) => {
@@ -79,7 +81,7 @@ function tickScore(from, to, ms = 700) {
 // ---------- Game flow ----------
 async function loadDaily() {
   daily = await api(`/daily?guildId=${encodeURIComponent(auth.guildId)}`);
-  game = { mode: 'daily', number: daily.number, rounds: daily.rounds, maxTotal: daily.maxTotal };
+  game = { mode: 'daily', number: daily.number, rounds: daily.rounds, maxTotal: daily.maxTotal, roundSeconds: daily.roundSeconds };
   results = []; total = 0; round = 0;
   map.clearHistory();
   const p = daily.progress;
@@ -95,7 +97,7 @@ async function loadDaily() {
 
 async function startPractice() {
   const pr = await api('/practice');
-  game = { mode: 'practice', seed: pr.seed, rounds: pr.rounds, maxTotal: pr.maxTotal };
+  game = { mode: 'practice', seed: pr.seed, rounds: pr.rounds, maxTotal: pr.maxTotal, roundSeconds: pr.roundSeconds };
   results = []; total = 0; round = 0;
   map.clearHistory();
   closeSheets();
@@ -103,23 +105,64 @@ async function startPractice() {
   startRound();
 }
 
-function startRound() {
+async function startRound() {
   clearTimeout(advanceTimer);
   map.clear();
   if (round === 0) map.reset();
   const place = game.rounds[round];
-  const tier = $('tier');
-  tier.textContent = `${place.tier} - ${place.multiplier}x Multiplier`;
-  tier.className = `tier t${round + 1}`;
+  setTier(`${place.tier} - ${place.multiplier}x Multiplier`, `tier t${round + 1}`);
   $('prompt-text').innerHTML = `<span>Tap as close as you can to</span><b>${escapeHtml(placeLabel(place))}</b>`;
   $('prompt-box').classList.remove('faded');
+
+  // Start the clock. For the daily game the server owns the start time, so a reload resumes
+  // with whatever is left rather than a fresh 20 seconds.
+  let remainingMs = game.roundSeconds * 1000;
+  if (game.mode === 'daily') {
+    try {
+      const r = await api('/round/start', { method: 'POST', body: JSON.stringify({ round, guildId: auth.guildId }) });
+      remainingMs = r.remainingMs;
+    } catch (e) {
+      if (e.data?.progress) return loadDaily();
+    }
+  }
+  deadline = Date.now() + remainingMs;
   phase = 'guessing';
+  startClock();
+}
+
+function setTier(text, cls) {
+  const tier = $('tier');
+  tier.className = cls;
+  tier.firstChild.textContent = text; // keep the timer span
+}
+
+function startClock() {
+  clearInterval(clockTimer);
+  const el = $('timer');
+  el.classList.remove('hidden', 'urgent');
+  const tick = () => {
+    const left = Math.max(0, deadline - Date.now());
+    el.textContent = `⏱ ${Math.ceil(left / 1000)}`;
+    el.classList.toggle('urgent', left <= 5000);
+    if (left <= 0) {
+      clearInterval(clockTimer);
+      if (phase === 'guessing') submitGuess(null); // out of time → scores 0
+    }
+  };
+  tick();
+  clockTimer = setInterval(tick, 100);
+}
+
+function stopClock() {
+  clearInterval(clockTimer);
+  $('timer').classList.add('hidden');
 }
 
 async function submitGuess(ll) {
   phase = 'revealing';
+  stopClock();
   try {
-    const body = { round, lat: ll[1], lon: ll[0] };
+    const body = ll ? { round, lat: ll[1], lon: ll[0] } : { round, timeout: true };
     let r;
     if (game.mode === 'practice') {
       r = await api('/practice/guess', { method: 'POST', body: JSON.stringify({ ...body, seed: game.seed }) });
@@ -128,7 +171,7 @@ async function submitGuess(ll) {
     }
     results[round] = r;
     $('prompt-box').classList.add('faded');
-    map.reveal(r.target, ll, r.km, (el) => showResult(el, r));
+    map.reveal(r.target, r.timedOut ? null : ll, r.km, (el) => showResult(el, r));
   } catch (e) {
     if (e.data?.progress) return loadDaily(); // state drifted (e.g. played elsewhere) – resync
     alert(e.message);
@@ -143,7 +186,7 @@ async function showResult(el, r) {
   const mult = r.multiplier > 1 ? ` (${r.base} × ${r.multiplier})` : '';
   const lines = [
     { cls: 'rl-name', html: `${flag(t.country)} ${escapeHtml(placeLabel(t))}` },
-    { cls: 'rl-cyan', text: `Distance: ${r.km.toLocaleString()} km` },
+    r.timedOut ? { cls: 'rl-quip', text: '⏰ Out of time!' } : { cls: 'rl-cyan', text: `Distance: ${r.km.toLocaleString()} km` },
     { cls: 'rl-cyan', text: `Score: ${r.score.toLocaleString()}${mult}` },
     t.population ? { cls: 'rl-green', text: `Population: ${fmtPop(t.population)}` } : null,
     r.quip ? { cls: 'rl-quip', text: r.quip } : null,
@@ -193,8 +236,8 @@ function shareText() {
 function showFinal() {
   const practice = game.mode === 'practice';
   map.clear();
-  $('tier').textContent = practice ? 'Practice complete' : 'Daily complete';
-  $('tier').className = 'tier t1';
+  stopClock();
+  setTier(practice ? 'Practice complete' : 'Daily complete', 'tier t1');
   $('prompt-text').textContent = practice ? 'Practice game finished' : "You've filled this day in!";
   $('prompt-box').classList.remove('faded');
   $('score').textContent = fmtScore(total);
@@ -202,7 +245,7 @@ function showFinal() {
   $('final-grid').textContent = medalLine();
   $('final-total').textContent = `Final score: ${total}`;
   $('final-rows').innerHTML = results.map((r, i) =>
-    `<div class="final-row"><span>${flag(r.target.country)} ${escapeHtml(r.target.name)} <span class="dim">· ${game.rounds[i].tier}</span></span><span class="km">${r.km.toLocaleString()} km · ${r.base}${r.emoji} ×${r.multiplier} = ${r.score}</span></div>`
+    `<div class="final-row"><span>${flag(r.target.country)} ${escapeHtml(r.target.name)} <span class="dim">· ${game.rounds[i].tier}</span></span><span class="km">${r.timedOut ? '⏰ out of time' : `${r.km.toLocaleString()} km`} · ${r.base}${r.emoji} ×${r.multiplier} = ${r.score}</span></div>`
   ).join('');
   $('btn-final-board').classList.toggle('hidden', practice);
   $('final-note').classList.toggle('hidden', practice);

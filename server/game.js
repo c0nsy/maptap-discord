@@ -11,6 +11,10 @@ export const MAX_ROUND_SCORE = 100;
 // Round i uses places of difficulty i+1 and multiplies the base score by MULTIPLIERS[i].
 export const MULTIPLIERS = [1, 1.5, 2, 2.5, 3]; // perfect day = 1000
 export const TIER_LABELS = ['Easy', 'Medium', 'Hard', 'Expert', 'Extreme'];
+// Which place-difficulty pool each round draws from. Tier 1 (world-famous capitals) is skipped
+// entirely so even the "Easy" round is a secondary city; the last two rounds both draw from tier 5.
+export const ROUND_TIERS = [2, 3, 4, 5, 5];
+export const ROUND_SECONDS = 20; // time limit per round; the server allows a little network grace
 export const MAX_TOTAL = MULTIPLIERS.reduce((s, m) => s + m * MAX_ROUND_SCORE, 0);
 // Puzzle #1 is this date; the number increments each UTC day after.
 const EPOCH = Date.UTC(2026, 10, 3); // 2026-11-03
@@ -50,11 +54,13 @@ function hashString(s) {
 /** The 5 places for a given date key: one per difficulty tier, easiest first. */
 export function dailyPlaces(dateKey) {
   const rand = mulberry32(hashString('maptap:' + dateKey));
-  return MULTIPLIERS.map((_, i) => {
-    const tier = PLACES.filter((p) => (p.difficulty ?? 3) === i + 1);
+  const picked = [];
+  for (const t of ROUND_TIERS) {
+    const tier = PLACES.filter((p) => (p.difficulty ?? 3) === t && !picked.includes(p));
     const pool = tier.length ? tier : PLACES;
-    return pool[Math.floor(rand() * pool.length)];
-  });
+    picked.push(pool[Math.floor(rand() * pool.length)]);
+  }
+  return picked;
 }
 
 /** Great-circle distance in km (haversine). */
@@ -69,11 +75,12 @@ export function distanceKm(lat1, lon1, lat2, lon2) {
 }
 
 /**
- * maptap.gg-style curve: 100 × e^(−km/4600), which matches observed scores
- * (236 km → 95, 639 km → 87, 6,589 km → 24). A 20,000 km miss still scores 1.
+ * Steeper than maptap.gg's 100 × e^(−km/4600): we use 100 × e^(−km/3000), so
+ * 236 km → 92, 639 km → 81, 1,500 km → 61, 3,000 km → 37, 6,589 km → 11.
  */
 export function scoreForDistance(km) {
-  return Math.max(0, Math.round(MAX_ROUND_SCORE * Math.exp(-km / 4600)));
+  if (km == null) return 0; // ran out of time
+  return Math.max(0, Math.round(MAX_ROUND_SCORE * Math.exp(-km / 3000)));
 }
 
 /** The orange one-liner under each round's result. */
@@ -87,12 +94,14 @@ const QUIPS = [
   [Infinity, ['Other side of the planet', 'Wrong hemisphere entirely', 'Impressively far', 'That\'s the antipode\'s neighbour']],
 ];
 export function quipFor(km) {
+  if (km == null) return 'Too slow! The clock ran out.';
   const bucket = QUIPS.find(([max]) => km <= max)[1];
   return bucket[Math.floor(km * 7919) % bucket.length];
 }
 
 /** Medal next to each round's base score in the share text (maptap style: 100🎯 95🥇 94🥈). */
-export function medalForScore(base) {
+export function medalForScore(base, timedOut = false) {
+  if (timedOut) return '⏰';
   if (base >= 100) return '🎯';
   if (base >= 95) return '🥇';
   if (base >= 85) return '🥈';

@@ -19,10 +19,14 @@ Final score: 965
 | 😬 | 40–69 |
 | 💀 | under 40 |
 
-Base score per round follows maptap.gg: 100 × e^(−km∕4600), so 236 km ≈ 95, 639 km ≈ 87,
-6,589 km ≈ 24. Rounds get harder and the base is multiplied: Easy ×1, Medium ×1.5, Hard ×2,
-Expert ×2.5, Extreme ×3, so a perfect day is 1000. Each place in `data/places.json` has a
-`difficulty` of 1–5 and each day picks one per tier.
+Base score per round is 100 × e^(−km∕3000) (steeper than maptap.gg): 236 km ≈ 92, 639 km ≈ 81,
+1,500 km ≈ 61, 3,000 km ≈ 37. Rounds get harder and the base is multiplied: Easy ×1, Medium ×1.5,
+Hard ×2, Expert ×2.5, Extreme ×3, so a perfect day is 1000. Each of the ~380 places in
+`data/places.json` has a `difficulty` of 1–5; rounds draw from tiers 2, 3, 4, 5, 5 (`ROUND_TIERS`
+in `server/game.js`), so the world-famous capitals in tier 1 never appear.
+
+**20 seconds per round.** The clock starts when the prompt appears and is kept server-side, so
+reloading doesn't reset it. No tap in time scores 0 for that round (⏰ in the share line).
 
 Tapping the globe **is** the guess (zoom in first to be precise). The reveal copies maptap.gg: an
 orange line grows from your tap to the answer while the globe turns to follow it, rods mark both
@@ -142,7 +146,8 @@ finished the puzzle on 2+ consecutive days but hasn't played yet. It runs as a V
 - **Places**: edit `data/places.json` (`name`, `country`, `lat`, `lon`, `difficulty` 1–5, optional `population`).
   `node scripts/tag-difficulty.js` and `node scripts/add-population.js` re-tag from the lists in those scripts.
 - **Quips**: `QUIPS` in `server/game.js`, bucketed by miss distance.
-- **Multipliers / tier names**: `MULTIPLIERS` and `TIER_LABELS` in `server/game.js`.
+- **Multipliers / tier names / which tiers rounds use / time limit**: `MULTIPLIERS`, `TIER_LABELS`,
+  `ROUND_TIERS` and `ROUND_SECONDS` in `server/game.js`.
 - **Puzzle numbering**: `EPOCH` in `server/game.js` is puzzle #1's date.
 - **Scoring curve / medal thresholds**: `scoreForDistance` and `medalForScore` in `server/game.js`.
 - **Rounds per day**: `ROUNDS` in `server/game.js` and `client/src/main.js`.

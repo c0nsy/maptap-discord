@@ -59,7 +59,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
 .score-box .label { color: var(--cyan); font-size: 13px; letter-spacing: 1px; line-height: 1; }
 .score-box .score { font-size: 30px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .prompt-box { flex: 1; display: flex; flex-direction: column; }
-.tier { text-align: center; font-weight: 600; padding: 3px 6px; color: #0b2a12; background: #9af29a; border: 2px solid #fff; border-bottom: 0; }
+.tier { position: relative; text-align: center; font-weight: 600; padding: 3px 6px; color: #0b2a12; background: #9af29a; border: 2px solid #fff; border-bottom: 0; }
+.timer { position: absolute; right: 6px; top: 1px; font-weight: 800; font-variant-numeric: tabular-nums; font-family: "Courier New", monospace; font-size: 14px; }
+.timer.urgent { color: #c00; animation: blink 0.5s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
 .tier.t1 { background: #9af29a; color: #0b2a12; }
 .tier.t2 { background: #f6e36b; color: #3a2e00; }
 .tier.t3 { background: #ffb866; color: #3d1d00; }
