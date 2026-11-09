@@ -285,6 +285,7 @@ app.get('/api/cron/weekly', async (req, res) => {
     const botMember = await discordBot('GET', `/guilds/${guild}/members/${me.id}`).catch(() => null);
     const botTop = Math.max(0, ...roles.filter((r) => botMember?.roles?.includes(r.id)).map((r) => r.position));
     console.log('[weekly] role', roleId, 'pos', role.position, 'bot top pos', botTop, 'bot roles', botMember?.roles);
+    console.log('[weekly] role order (top first):', [...roles].sort((a, b) => b.position - a.position).map((r) => `${r.position}:${r.name}`).join(' > '));
     if (botTop > 1 && role.position !== botTop - 1) {
       await discordBot('PATCH', `/guilds/${guild}/roles`, [{ id: roleId, position: botTop - 1 }])
         .then(() => console.log('[weekly] moved role to', botTop - 1))
