@@ -280,9 +280,15 @@ app.get('/api/cron/weekly', async (req, res) => {
     if (!process.env.WEEKLY_ROLE_ID && (role.color !== WEEKLY_ROLE_COLOR || !role.hoist)) {
       await discordBot('PATCH', `/guilds/${guild}/roles/${roleId}`, { color: WEEKLY_ROLE_COLOR, hoist: true });
     }
-    const botRole = roles.find((r) => r.tags?.bot_id === process.env.VITE_DISCORD_CLIENT_ID);
-    if (botRole && role.position < botRole.position - 1) {
-      await discordBot('PATCH', `/guilds/${guild}/roles`, [{ id: roleId, position: botRole.position - 1 }]).catch(() => {});
+    // The bot can place roles anywhere below its own highest role: look that up from its member record.
+    const me = await discordBot('GET', '/users/@me');
+    const botMember = await discordBot('GET', `/guilds/${guild}/members/${me.id}`).catch(() => null);
+    const botTop = Math.max(0, ...roles.filter((r) => botMember?.roles?.includes(r.id)).map((r) => r.position));
+    console.log('[weekly] role', roleId, 'pos', role.position, 'bot top pos', botTop, 'bot roles', botMember?.roles);
+    if (botTop > 1 && role.position !== botTop - 1) {
+      await discordBot('PATCH', `/guilds/${guild}/roles`, [{ id: roleId, position: botTop - 1 }])
+        .then(() => console.log('[weekly] moved role to', botTop - 1))
+        .catch((e) => console.log('[weekly] could not move role:', e.message));
     }
     if (prev.week === week.end && !req.query.force) return res.json({ ok: true, skipped: 'already awarded', week, roleId });
     if (!winners.length) return res.json({ ok: true, week, winners: 0 });
