@@ -297,16 +297,14 @@ app.get('/api/cron/weekly', async (req, res) => {
 
     const pts = (p) => `**${p.total.toLocaleString('en-US')}** pts over ${p.days} day${p.days === 1 ? '' : 's'}`;
     const nice = (k) => { const [y, m, d] = k.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }); };
-    const runners = ranking.filter((p) => !winnerIds.includes(p.userId)).slice(0, 3);
     const lines = [
       `👑 **MapTap God of the week** (${nice(week.start)} – ${nice(week.end)})`,
       `All hail ${winners.map((p) => `<@${p.userId}>`).join(' and ')} — ${pts(winners[0])}! The golden crown is yours for the week.`,
-      ...(runners.length ? ['', ...runners.map((p, i) => `${['🥈', '🥉', '4.'][i]} <@${p.userId}> — ${pts(p)}`)] : []),
       '', 'A new week starts now. Good luck everyone — the crown is up for grabs again next Monday. Play daily with `/maptap`.',
     ];
     await discordBot('POST', `/channels/${REMINDER_CHANNEL_ID}/messages`, {
       content: lines.join('\n'),
-      allowed_mentions: { users: ranking.slice(0, 4).map((p) => p.userId) },
+      allowed_mentions: { users: winnerIds },
     });
     res.json({ ok: true, week, roleId, winners: winnerIds, removed: (prev.holders || []).filter((u) => !winnerIds.includes(u)) });
   } catch (e) {
