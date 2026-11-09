@@ -144,13 +144,13 @@ finished the puzzle on 2+ consecutive days but hasn't played yet. It runs as a V
 ## Weekly "MapTap God" role (optional)
 
 Every Monday the player with the highest total across the previous Monday–Sunday week (UTC) is
-given a hoisted silver **MapTap God** role and announced in the reminder channel; last week's
+given a hoisted gold **MapTap God** role and announced in the reminder channel; last week's
 holder loses it (ties share it). Runs as a second Vercel cron (`0 14 * * 1`) hitting
 `/api/cron/weekly`, using the same bot and env vars as the streak reminder.
 
 1. Server Settings → Roles → the bot's role → enable **Manage Roles**, and drag that role near the
    top of the list. The MapTap God role is created automatically on the first run (just below the
-   bot's role; drag it above your other coloured roles so the silver name shows).
+   bot's role; drag it above your other coloured roles so the gold name shows).
 2. Optional: set `WEEKLY_ROLE_ID` to use a role you made yourself instead.
 3. Preview the standings without touching roles:
    `curl -H "Authorization: Bearer $CRON_SECRET" "https://<your-app>.vercel.app/api/cron/weekly?dry=1"`

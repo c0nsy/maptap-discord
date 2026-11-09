@@ -216,10 +216,10 @@ app.get('/api/cron/reminder', async (req, res) => {
 // ---------- Weekly "MapTap God" role (Vercel cron, Mondays → see vercel.json) ----------
 // Sums every finished daily total over the last full Monday–Sunday week (UTC). The player with the
 // highest weekly total gets the MapTap God role (created on first run if WEEKLY_ROLE_ID isn't set:
-// silver, hoisted) and last week's holder loses it. Needs the bot to have Manage Roles and its own
+// gold, hoisted) and last week's holder loses it. Needs the bot to have Manage Roles and its own
 // role above MapTap God in the server's role list.
 const WEEKLY_ROLE_NAME = 'MapTap God';
-const WEEKLY_ROLE_COLOR = 0xc0c0c0; // silver
+const WEEKLY_ROLE_COLOR = 0xffd700; // gold
 
 function lastFullWeek(today = todayKey()) {
   // Monday–Sunday block that ended most recently (yesterday if today is Monday)
@@ -263,19 +263,28 @@ app.get('/api/cron/weekly', async (req, res) => {
   const ranking = Object.values(totals).sort((a, b) => b.total - a.total || b.days - a.days);
   const winners = ranking.filter((p) => p.total === ranking[0]?.total); // ties share it
   const prev = (await store.getMeta(guild, 'weekly')) || {};
-  if (prev.week === week.end && !req.query.force) return res.json({ ok: true, skipped: 'already awarded', week });
   if (req.query.dry) return res.json({ ok: true, dryRun: true, week, ranking, winners: winners.map((w) => w.userId), previous: prev });
-  if (!winners.length) return res.json({ ok: true, week, winners: 0 });
 
   try {
-    // role: env override → remembered → existing by name → create (new roles land at the bottom, below the bot)
+    // Role: env override → remembered → existing by name → create. Every run also re-applies the
+    // colour/hoist and moves the role to just under the bot's own role, so it sits above the
+    // members' other coloured roles and the gold name actually shows. (A bot can only place roles
+    // below its own, so the bot's role itself must be dragged up by a server admin.)
     let roleId = process.env.WEEKLY_ROLE_ID || prev.roleId;
     const roles = await discordBot('GET', `/guilds/${guild}/roles`);
-    if (!roleId || !roles.some((r) => r.id === roleId)) {
-      const existing = roles.find((r) => r.name === WEEKLY_ROLE_NAME);
-      roleId = existing ? existing.id
-        : (await discordBot('POST', `/guilds/${guild}/roles`, { name: WEEKLY_ROLE_NAME, color: WEEKLY_ROLE_COLOR, hoist: true, mentionable: false })).id;
+    let role = roles.find((r) => r.id === roleId) || roles.find((r) => r.name === WEEKLY_ROLE_NAME);
+    if (!role) role = await discordBot('POST', `/guilds/${guild}/roles`, { name: WEEKLY_ROLE_NAME, color: WEEKLY_ROLE_COLOR, hoist: true, mentionable: false });
+    roleId = role.id;
+    if (!process.env.WEEKLY_ROLE_ID && (role.color !== WEEKLY_ROLE_COLOR || !role.hoist)) {
+      await discordBot('PATCH', `/guilds/${guild}/roles/${roleId}`, { color: WEEKLY_ROLE_COLOR, hoist: true });
     }
+    const botRole = roles.find((r) => r.tags?.bot_id === process.env.VITE_DISCORD_CLIENT_ID);
+    if (botRole && role.position < botRole.position - 1) {
+      await discordBot('PATCH', `/guilds/${guild}/roles`, [{ id: roleId, position: botRole.position - 1 }]).catch(() => {});
+    }
+    if (prev.week === week.end && !req.query.force) return res.json({ ok: true, skipped: 'already awarded', week, roleId });
+    if (!winners.length) return res.json({ ok: true, week, winners: 0 });
+
     const winnerIds = winners.map((w) => w.userId);
     for (const userId of prev.holders || []) {
       if (winnerIds.includes(userId)) continue;
@@ -289,7 +298,7 @@ app.get('/api/cron/weekly', async (req, res) => {
     const runners = ranking.filter((p) => !winnerIds.includes(p.userId)).slice(0, 3);
     const lines = [
       `👑 **MapTap God of the week** (${nice(week.start)} – ${nice(week.end)})`,
-      `All hail ${winners.map((p) => `<@${p.userId}>`).join(' and ')} — ${pts(winners[0])}! The silver crown is yours for the week.`,
+      `All hail ${winners.map((p) => `<@${p.userId}>`).join(' and ')} — ${pts(winners[0])}! The golden crown is yours for the week.`,
       ...(runners.length ? ['', ...runners.map((p, i) => `${['🥈', '🥉', '4.'][i]} <@${p.userId}> — ${pts(p)}`)] : []),
       '', 'A new week starts now. Good luck everyone — the crown is up for grabs again next Monday. Play daily with `/maptap`.',
     ];
