@@ -180,7 +180,7 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, store: store.kind }))
 // channel, plus REMINDER_GUILD_ID / REMINDER_CHANNEL_ID and CRON_SECRET (Vercel sends it as a
 // bearer token so nobody else can trigger the post).
 app.get('/api/cron/reminder', async (req, res) => {
-  const { CRON_SECRET, DISCORD_BOT_TOKEN, REMINDER_GUILD_ID, REMINDER_CHANNEL_ID } = process.env;
+  const { CRON_SECRET, DISCORD_BOT_TOKEN, REMINDER_GUILD_ID, REMINDER_CHANNEL_ID } = envTrimmed();
   if (!CRON_SECRET || req.headers.authorization !== `Bearer ${CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
   if (!DISCORD_BOT_TOKEN || !REMINDER_GUILD_ID || !REMINDER_CHANNEL_ID) return res.status(500).json({ error: 'Reminder env vars not set' });
 
@@ -218,6 +218,8 @@ app.get('/api/cron/reminder', async (req, res) => {
 // highest weekly total gets the MapTap God role (created on first run if WEEKLY_ROLE_ID isn't set:
 // gold, hoisted) and last week's holder loses it. Needs the bot to have Manage Roles and its own
 // role above MapTap God in the server's role list.
+// env values pasted into dashboards sometimes carry a trailing space
+const envTrimmed = () => Object.fromEntries(Object.entries(process.env).map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]));
 const WEEKLY_ROLE_NAME = 'MapTap God';
 const WEEKLY_ROLE_COLOR = 0xffd700; // gold
 
@@ -243,7 +245,7 @@ async function discordBot(method, path, body) {
 }
 
 app.get('/api/cron/weekly', async (req, res) => {
-  const { CRON_SECRET, DISCORD_BOT_TOKEN, REMINDER_GUILD_ID, REMINDER_CHANNEL_ID } = process.env;
+  const { CRON_SECRET, DISCORD_BOT_TOKEN, REMINDER_GUILD_ID, REMINDER_CHANNEL_ID } = envTrimmed();
   if (!CRON_SECRET || req.headers.authorization !== `Bearer ${CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
   if (!DISCORD_BOT_TOKEN || !REMINDER_GUILD_ID || !REMINDER_CHANNEL_ID) return res.status(500).json({ error: 'Reminder env vars not set' });
   const guild = REMINDER_GUILD_ID;
