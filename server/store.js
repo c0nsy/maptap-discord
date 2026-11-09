@@ -22,8 +22,15 @@ function redisStore(url, token) {
     return data.result;
   }
   const key = (date, guild) => `maptap:scores:${date}:${guild}`;
+  const metaKey = (guild, name) => `maptap:meta:${guild}:${name}`;
   return {
     kind: 'redis',
+    // small per-guild settings that must outlive the 90-day score window (weekly role id, holders…)
+    async getMeta(guild, name) {
+      const raw = await cmd('GET', metaKey(guild, name));
+      return raw ? JSON.parse(raw) : null;
+    },
+    async setMeta(guild, name, obj) { await cmd('SET', metaKey(guild, name), JSON.stringify(obj)); },
     async getGuild(date, guild) {
       const raw = await cmd('GET', key(date, guild));
       return raw ? JSON.parse(raw) : {};
@@ -42,6 +49,13 @@ function fileStore() {
   const scores = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
   return {
     kind: 'file',
+    async getMeta(guild, name) { return scores._meta?.[guild]?.[name] ?? null; },
+    async setMeta(guild, name, obj) {
+      scores._meta ??= {};
+      scores._meta[guild] ??= {};
+      scores._meta[guild][name] = obj;
+      writeFileSync(file, JSON.stringify(scores, null, 2));
+    },
     async getGuild(date, guild) { return scores[date]?.[guild] || {}; },
     async setGuild(date, guild, obj) {
       scores[date] ??= {};

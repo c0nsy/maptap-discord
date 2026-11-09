@@ -7,6 +7,7 @@
     { "source": "/api/(.*)", "destination": "/api/index" }
   ],
   "crons": [
-    { "path": "/api/cron/reminder", "schedule": "0 14 * * *" }
+    { "path": "/api/cron/reminder", "schedule": "0 14 * * *" },
+    { "path": "/api/cron/weekly", "schedule": "0 14 * * 1" }
   ]
 }

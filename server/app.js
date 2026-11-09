@@ -213,6 +213,94 @@ app.get('/api/cron/reminder', async (req, res) => {
   res.json({ ok: true, pinged: streaks.length });
 });
 
+// ---------- Weekly "MapTap God" role (Vercel cron, Mondays → see vercel.json) ----------
+// Sums every finished daily total over the last full Monday–Sunday week (UTC). The player with the
+// highest weekly total gets the MapTap God role (created on first run if WEEKLY_ROLE_ID isn't set:
+// silver, hoisted) and last week's holder loses it. Needs the bot to have Manage Roles and its own
+// role above MapTap God in the server's role list.
+const WEEKLY_ROLE_NAME = 'MapTap God';
+const WEEKLY_ROLE_COLOR = 0xc0c0c0; // silver
+
+function lastFullWeek(today = todayKey()) {
+  // Monday–Sunday block that ended most recently (yesterday if today is Monday)
+  const [y, m, d] = today.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday
+  const daysSinceSunday = dow === 0 ? 7 : dow;             // today Monday → Sunday was 1 day ago
+  const end = shiftDate(today, daysSinceSunday);
+  const days = [];
+  for (let i = 6; i >= 0; i--) days.push(shiftDate(end, i));
+  return { start: days[0], end, days };
+}
+
+async function discordBot(method, path, body) {
+  const r = await fetch(`https://discord.com/api/v10${path}`, {
+    method,
+    headers: { Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`Discord ${method} ${path} → ${r.status}: ${await r.text()}`);
+  return r.status === 204 ? null : r.json();
+}
+
+app.get('/api/cron/weekly', async (req, res) => {
+  const { CRON_SECRET, DISCORD_BOT_TOKEN, REMINDER_GUILD_ID, REMINDER_CHANNEL_ID } = process.env;
+  if (!CRON_SECRET || req.headers.authorization !== `Bearer ${CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
+  if (!DISCORD_BOT_TOKEN || !REMINDER_GUILD_ID || !REMINDER_CHANNEL_ID) return res.status(500).json({ error: 'Reminder env vars not set' });
+  const guild = REMINDER_GUILD_ID;
+
+  const week = lastFullWeek(typeof req.query.today === 'string' ? req.query.today : undefined);
+  const totals = {};
+  for (const date of week.days) {
+    const day = await store.getGuild(date, guild);
+    for (const [userId, p] of Object.entries(day)) {
+      if (!p.finished) continue;
+      totals[userId] ??= { userId, username: p.username, total: 0, days: 0 };
+      totals[userId].total += p.total;
+      totals[userId].days += 1;
+      totals[userId].username = p.username;
+    }
+  }
+  const ranking = Object.values(totals).sort((a, b) => b.total - a.total || b.days - a.days);
+  const winners = ranking.filter((p) => p.total === ranking[0]?.total); // ties share it
+  const prev = (await store.getMeta(guild, 'weekly')) || {};
+  if (prev.week === week.end && !req.query.force) return res.json({ ok: true, skipped: 'already awarded', week });
+  if (req.query.dry) return res.json({ ok: true, dryRun: true, week, ranking, winners: winners.map((w) => w.userId), previous: prev });
+  if (!winners.length) return res.json({ ok: true, week, winners: 0 });
+
+  try {
+    // role: env override → remembered → existing by name → create (new roles land at the bottom, below the bot)
+    let roleId = process.env.WEEKLY_ROLE_ID || prev.roleId;
+    const roles = await discordBot('GET', `/guilds/${guild}/roles`);
+    if (!roleId || !roles.some((r) => r.id === roleId)) {
+      const existing = roles.find((r) => r.name === WEEKLY_ROLE_NAME);
+      roleId = existing ? existing.id
+        : (await discordBot('POST', `/guilds/${guild}/roles`, { name: WEEKLY_ROLE_NAME, color: WEEKLY_ROLE_COLOR, hoist: true, mentionable: false })).id;
+    }
+    const winnerIds = winners.map((w) => w.userId);
+    for (const userId of prev.holders || []) {
+      if (winnerIds.includes(userId)) continue;
+      await discordBot('DELETE', `/guilds/${guild}/members/${userId}/roles/${roleId}`).catch(() => {}); // e.g. left the server
+    }
+    for (const userId of winnerIds) await discordBot('PUT', `/guilds/${guild}/members/${userId}/roles/${roleId}`);
+    await store.setMeta(guild, 'weekly', { roleId, holders: winnerIds, week: week.end });
+
+    const fmt = (p) => `<@${p.userId}> — **${p.total.toLocaleString('en-US')}** pts over ${p.days} day${p.days === 1 ? '' : 's'}`;
+    const runners = ranking.filter((p) => !winnerIds.includes(p.userId)).slice(0, 3);
+    const lines = [
+      `👑 **MapTap God of the week** (${week.start} → ${week.end}): ${winners.map(fmt).join(' and ')}`,
+      ...(runners.length ? ['', ...runners.map((p, i) => `${['🥈', '🥉', '4.'][i]} ${fmt(p)}`)] : []),
+      '', 'The crown is defended every Monday. Play daily with `/maptap`.',
+    ];
+    await discordBot('POST', `/channels/${REMINDER_CHANNEL_ID}/messages`, {
+      content: lines.join('\n'),
+      allowed_mentions: { users: ranking.slice(0, 4).map((p) => p.userId) },
+    });
+    res.json({ ok: true, week, roleId, winners: winnerIds, removed: (prev.holders || []).filter((u) => !winnerIds.includes(u)) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ---------- Static client (production on a normal Node host; Vercel serves client/dist itself) ----------
 if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {
   const dist = path.join(__dirname, '../client/dist');
