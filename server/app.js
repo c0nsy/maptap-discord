@@ -2,6 +2,7 @@
 // api/index.js exports it as a Vercel serverless function.
 import 'dotenv/config';
 import express from 'express';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { store } from './store.js';
@@ -14,7 +15,8 @@ const GRACE_MS = 3000; // network slack on top of ROUND_SECONDS before a guess c
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.json());
+// rawBody: the exact bytes, needed to verify Discord interaction signatures
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 
 const { VITE_DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET } = process.env;
 
@@ -184,15 +186,18 @@ app.get('/api/cron/reminder', async (req, res) => {
   if (!CRON_SECRET || req.headers.authorization !== `Bearer ${CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
   if (!DISCORD_BOT_TOKEN || !REMINDER_GUILD_ID || !REMINDER_CHANNEL_ID) return res.status(500).json({ error: 'Reminder env vars not set' });
 
+  if (!req.query.dry) await ensureCommands(req);
+
   const today = todayKey();
   const playedToday = await store.getGuild(today, REMINDER_GUILD_ID);
+  const silenced = new Set(((await store.getMeta(REMINDER_GUILD_ID, 'silenced')) || {}).users || []); // /maptap silence
   const days = [];
   for (let i = 1; i <= 30; i++) days.push(await store.getGuild(shiftDate(today, i), REMINDER_GUILD_ID));
 
   // streak = consecutive finished days ending yesterday
   const streaks = [];
   for (const userId of Object.keys(days[0])) {
-    if (playedToday[userId]?.finished) continue;
+    if (playedToday[userId]?.finished || silenced.has(userId)) continue;
     let streak = 0;
     for (const day of days) { if (day[userId]?.finished) streak++; else break; }
     if (streak >= 2) streaks.push({ userId, streak, username: days[0][userId].username });
@@ -203,7 +208,7 @@ app.get('/api/cron/reminder', async (req, res) => {
 
   const n = puzzleNumber(today);
   const list = streaks.map((s) => `<@${s.userId}> (${s.streak} day${s.streak === 1 ? '' : 's'} 🔥)`).join(', ');
-  const content = `🌍 **MapTap #${n}** is live! Don't break your streak: ${list}\nType \`/maptap\` to play.`;
+  const content = `🌍 **MapTap #${n}** is live! Don't break your streak: ${list}\nType \`/maptap\` to play · \`/maptap silence\` to stop these pings.`;
   const r = await fetch(`https://discord.com/api/v10/channels/${REMINDER_CHANNEL_ID}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
@@ -249,6 +254,7 @@ app.get('/api/cron/weekly', async (req, res) => {
   if (!CRON_SECRET || req.headers.authorization !== `Bearer ${CRON_SECRET}`) return res.status(401).json({ error: 'Unauthorized' });
   if (!DISCORD_BOT_TOKEN || !REMINDER_GUILD_ID || !REMINDER_CHANNEL_ID) return res.status(500).json({ error: 'Reminder env vars not set' });
   const guild = REMINDER_GUILD_ID;
+  if (!req.query.dry) await ensureCommands(req);
 
   const week = lastFullWeek(typeof req.query.today === 'string' ? req.query.today : undefined);
   const totals = {};
@@ -318,6 +324,81 @@ app.get('/api/cron/weekly', async (req, res) => {
     res.status(502).json({ error: e.message });
   }
 });
+
+// ---------- Slash commands: /maptap silence · /maptap unsilence ----------
+// Discord POSTs interactions here (the app's Interactions Endpoint URL). Every request is signed
+// with the app's Ed25519 key; the key is read from DISCORD_PUBLIC_KEY or fetched once with the bot
+// token. Silenced players are left out of the daily streak reminder for that server.
+const SILENCE_COMMAND = {
+  name: 'maptap', type: 1, description: 'MapTap reminder settings', contexts: [0], integration_types: [0],
+  options: [
+    { type: 1, name: 'silence', description: 'Stop the daily streak reminder from pinging you' },
+    { type: 1, name: 'unsilence', description: 'Get daily streak reminder pings again' },
+  ],
+};
+
+let verifyKeyPromise;
+function verifyKey() {
+  verifyKeyPromise ??= (async () => {
+    const hex = envTrimmed().DISCORD_PUBLIC_KEY || (await discordBot('GET', '/applications/@me')).verify_key;
+    // raw 32-byte Ed25519 key → SPKI DER
+    return crypto.createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(hex, 'hex')]), format: 'der', type: 'spki' });
+  })().catch((e) => { verifyKeyPromise = undefined; throw e; });
+  return verifyKeyPromise;
+}
+
+app.post('/api/interactions', async (req, res) => {
+  const sig = req.headers['x-signature-ed25519'];
+  const ts = req.headers['x-signature-timestamp'];
+  const raw = req.rawBody ?? Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {}));
+  let ok = false;
+  try {
+    ok = typeof sig === 'string' && typeof ts === 'string' && /^[0-9a-f]{128}$/i.test(sig)
+      && crypto.verify(null, Buffer.concat([Buffer.from(ts), raw]), await verifyKey(), Buffer.from(sig, 'hex'));
+  } catch (e) { console.log('[interactions] verify error:', e.message); }
+  if (!ok) return res.status(401).send('invalid request signature');
+
+  const i = req.body;
+  if (i.type === 1) return res.json({ type: 1 }); // PING
+  if (i.type !== 2) return res.status(400).json({ error: 'unsupported interaction' });
+  if (i.data?.type === 4) return res.json({ type: 12 }); // entry point routed to us → launch the Activity
+  const reply = (content) => res.json({ type: 4, data: { content, flags: 64 } }); // ephemeral
+  const sub = i.data?.options?.[0]?.name;
+  const userId = i.member?.user?.id || i.user?.id;
+  if (i.data?.name !== SILENCE_COMMAND.name || !['silence', 'unsilence'].includes(sub)) return reply('Unknown command.');
+  if (!i.guild_id || !userId) return reply('Use this in a server.');
+  const users = new Set(((await store.getMeta(i.guild_id, 'silenced')) || {}).users || []);
+  if (sub === 'silence') users.add(userId); else users.delete(userId);
+  await store.setMeta(i.guild_id, 'silenced', { users: [...users] });
+  reply(sub === 'silence'
+    ? '🔕 Done. The daily streak reminder won\'t ping you any more. Use `/maptap unsilence` to turn it back on.'
+    : '🔔 You\'re back on the daily streak reminder. Use `/maptap silence` to mute it again.');
+});
+
+// Idempotent setup, run from the crons: points the app's Interactions Endpoint URL at this
+// deployment and registers the command. Never fails the cron.
+async function ensureCommands(req) {
+  try {
+    const env = envTrimmed();
+    const host = env.PUBLIC_HOST || env.VERCEL_PROJECT_PRODUCTION_URL || req.headers.host;
+    const url = `https://${host}/api/interactions`;
+    const me = await discordBot('GET', '/applications/@me');
+    if (me.interactions_endpoint_url !== url) {
+      await discordBot('PATCH', '/applications/@me', { interactions_endpoint_url: url });
+      console.log('[commands] interactions endpoint set to', url);
+    }
+    const existing = (await discordBot('GET', `/applications/${me.id}/commands`)).find((c) => c.type === 1 && c.name === SILENCE_COMMAND.name);
+    const same = existing && SILENCE_COMMAND.options.every((o) => existing.options?.some((e) => e.name === o.name && e.description === o.description));
+    if (!same) {
+      await discordBot('POST', `/applications/${me.id}/commands`, SILENCE_COMMAND);
+      console.log('[commands] registered /maptap silence and /maptap unsilence');
+    }
+    return { ok: true };
+  } catch (e) {
+    console.log('[commands] setup failed:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
 
 // ---------- Static client (production on a normal Node host; Vercel serves client/dist itself) ----------
 if (process.env.NODE_ENV === 'production' && !process.env.VERCEL) {

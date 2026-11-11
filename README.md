@@ -141,6 +141,13 @@ finished the puzzle on 2+ consecutive days but hasn't played yet. It runs as a V
 4. Preview who would be pinged without posting:
    `curl -H "Authorization: Bearer $CRON_SECRET" "https://<your-app>.vercel.app/api/cron/reminder?dry=1"`
 
+### `/maptap silence`
+
+Anyone can type `/maptap silence` to be left out of the reminder pings (`/maptap unsilence` to
+undo). No setup: the first cron run registers the command and points the app's Interactions
+Endpoint URL at `https://<your-app>/api/interactions` using the bot token (set `PUBLIC_HOST` if you
+are not on Vercel). The command shows next to the `/maptap` launcher in Discord's picker.
+
 ## Weekly "MapTap God" role (optional)
 
 Every Monday the player with the highest total across the previous Monday–Sunday week (UTC) is
